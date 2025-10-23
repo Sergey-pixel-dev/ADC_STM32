@@ -1,0 +1,46 @@
+{
+    "cortex-debug.armToolchainPath": "usr/bin",
+    "cortex-debug.openocdPath": "/usr/bin/openocd",
+    "cortex-debug.gdbPath": "/usr/bin/gdb-multiarch",
+    "files.associations": {
+        "*.asm": "nasm",
+        "esp.h": "c",
+        "uart.h": "c",
+        "stdint.h": "c",
+        "stm32f1xx.h": "c",
+        "stm32f103xb.h": "c",
+        "compare": "c",
+        "limits": "c",
+        "new": "c",
+        "stm32f1xx_hal.h": "c",
+        "st7735.h": "c",
+        "encoder.h": "c",
+        "stdio.h": "c",
+        "st7789.h": "c",
+        "main.h": "c",
+        "stm32f1xx_hal_conf.h": "c",
+        "stm32f1xx_hal_rcc.h": "c",
+        "fonts.h": "c",
+        "stdbool.h": "c",
+        "core.h": "c",
+        "helpingmodule.h": "c",
+        "eeprom.h": "c",
+        "cstdint": "c",
+        "stm32f1xx_it.h": "c",
+        "functional": "c"
+    },
+    "cmake.useCMakePresets": "always",
+    "cmake.cmakePath": "cube-cmake",
+    "cmake.configureArgs": [
+        "-DCMAKE_COMMAND=cube-cmake"
+    ],
+    "cmake.preferredGenerators": [
+        "Ninja"
+    ],
+    "stm32cube-ide-clangd.path": "cube",
+    "stm32cube-ide-clangd.arguments": [
+        "starm-clangd",
+        "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/13.3.1+st.9/bin/arm-none-eabi-gcc",
+        "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/13.3.1+st.9/bin/arm-none-eabi-g++"
+    ]
+}
