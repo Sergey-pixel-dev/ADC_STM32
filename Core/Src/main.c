@@ -18,7 +18,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "stm32f103xb.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -37,25 +36,30 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define N_CHANNEL 2
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
 uint8_t sample_count = 0;
 uint32_t last_sample_time = 0;
+uint16_t adc_buffer[N_CHANNELS_ADC];
+uint8_t uart_buffer[2 * N_CHANNELS_ADC + 4];
+uint16_t vdda;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-uint16_t ADC_Calibrate();
-uint16_t ADC_Read_Channel(uint8_t channel);
+uint16_t ADC_Calibrate(void);
+uint16_t ADC_MeasurePower(void);
 void UART_SendBytes(uint8_t *data, uint16_t size);
 void ADC1_Init(void);
 void UART1_Init(void);
+void DMA1_Init(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -92,25 +96,29 @@ int main(void) {
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  DMA1_Init();
   ADC1_Init();
   UART1_Init();
 
   ADC1->CR2 |= ADC_CR2_ADON;
   HAL_Delay(1);
   // uint16_t calibration = ADC_Calibrate();
-  ADC1->CR2 |= ADC_CR2_TSVREFE;
-  HAL_Delay(10);
-  uint16_t vrefint = ADC_Read_Channel(17);
-  uint16_t vdda = 1200 * 4095 / (vrefint);
+  HAL_Delay(5);
 
-  uint8_t data_to_send[32];
-  uint16_t adc_measure;
-  data_to_send[0] = 0xAA;
-  data_to_send[1] = 0x55;
-  data_to_send[2 * N_CHANNEL + 2] = 0x55;
-  data_to_send[2 * N_CHANNEL + 3] = 0xAA;
-
+  uint16_t vrefint = ADC_MeasurePower();
+  vdda = 1200 * 4095 / (vrefint);
+  HAL_Delay(5);
+  ADC1->CR2 |= ADC_CR2_DMA;
+  ADC1->SR &= ~ADC_SR_STRT;
+  uart_buffer[0] = 0xAA;
+  uart_buffer[1] = 0x55;
+  uart_buffer[2 * N_CHANNELS_ADC + 2] = 0x55;
+  uart_buffer[2 * N_CHANNELS_ADC + 3] = 0xAA;
+  DMA1_Channel1->CCR |= DMA_CCR_EN;
+  DMA1->ISR;
+  HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -119,17 +127,7 @@ int main(void) {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint32_t current_time = HAL_GetTick();
-    if ((current_time - last_sample_time >= 7)) {
-      last_sample_time = current_time;
-      for (uint8_t i = 0; i < N_CHANNEL; i++) {
-        adc_measure = ADC_Read_Channel(i);
-        adc_measure = (vdda * (uint32_t)adc_measure) / 0xFFF;
-        data_to_send[2 + 2 * i] = adc_measure & 0xFF;
-        data_to_send[3 + 2 * i] = (adc_measure >> 8) & 0xFF;
-      }
-      UART_SendBytes(data_to_send, 2 * N_CHANNEL + 4);
-    }
+
     /* USER CODE END 3 */
   }
 }
@@ -170,6 +168,59 @@ void SystemClock_Config(void) {
 }
 
 /**
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM2_Init(void) {
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 35999 / 2;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_TIM_OC_Init(&htim2) != HAL_OK) {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_OC2REF;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
+  sConfigOC.Pulse = 17999;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK) {
+    Error_Handler();
+  }
+  __HAL_TIM_ENABLE_OCxPRELOAD(&htim2, TIM_CHANNEL_2);
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
+}
+
+/**
  * @brief GPIO Initialization Function
  * @param None
  * @retval None
@@ -206,13 +257,18 @@ uint16_t ADC_Calibrate(void) {
   return ADC1->DR;
 }
 
-uint16_t ADC_Read_Channel(uint8_t channel) {
-  ADC1->SQR3 = channel;
+uint16_t ADC_MeasurePower(void) {
+  ADC1->CR2 |= ADC_CR2_EXTSEL_2;
+  ADC1->CR1 &= ~ADC_CR1_SCAN;
+  ADC1->SQR3 = 17;
   ADC1->CR2 |= ADC_CR2_SWSTART;
-  // ADC1->CR2 |= ADC_CR2_ADON;
   while (!(ADC1->SR & ADC_SR_EOC))
     ;
-  return ADC1->DR;
+  uint16_t res = ADC1->DR;
+  ADC1->SQR3 = ADC_SQR3_SQ2_0;
+  ADC1->CR1 |= ADC_CR1_SCAN;
+  ADC1->CR2 &= ~ADC_CR2_EXTSEL_2;
+  return res;
 }
 
 void UART_SendBytes(uint8_t *data, uint16_t size) {
@@ -228,13 +284,14 @@ void UART_SendBytes(uint8_t *data, uint16_t size) {
 
 void ADC1_Init(void) {
   RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
-  ADC1->CR2 =
-      ADC_CR2_EXTSEL_2 | ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0 | ADC_CR2_EXTTRIG;
-  ADC1->CR1 = 0;
+  ADC1->CR2 = ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0 | ADC_CR2_EXTTRIG |
+              ADC_CR2_TSVREFE; // TIM2 CC2
+  ADC1->CR1 = ADC_CR1_SCAN;
   ADC1->SMPR2 = 0x3FFFFFFF;
   ADC1->SMPR1 = 0xFFFFFF;
+  ADC1->SQR1 = (N_CHANNELS_ADC - 1) << 20;
+  ADC1->SQR3 = ADC_SQR3_SQ2_0;
 }
-
 void UART1_Init(void) {
   RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
   RCC->APB2ENR |= RCC_APB2ENR_IOPAEN;
@@ -246,11 +303,31 @@ void UART1_Init(void) {
   GPIOA->CRH &= ~(GPIO_CRH_MODE10 | GPIO_CRH_CNF10);
   GPIOA->CRH |= GPIO_CRH_CNF10_0;
 
-  USART1->BRR = 0x271;
+  USART1->BRR = 0x30; // 1500000 // 0x271;
 
-  USART1->CR1 |= USART_CR1_UE;
-  USART1->CR1 |= USART_CR1_TE;
-  USART1->CR1 |= USART_CR1_RE;
+  USART1->CR1 |= USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
+  USART1->CR3 |= USART_CR3_DMAT;
+}
+void DMA1_Init(void) {
+  RCC->AHBENR |= RCC_AHBENR_DMA1EN;
+
+  DMA1_Channel1->CCR = DMA_CCR_PL_1 | DMA_CCR_PL_0 | DMA_CCR_MSIZE_0 |
+                       DMA_CCR_PSIZE_0 | DMA_MINC_ENABLE | DMA_CCR_TCIE;
+  DMA1_Channel1->CNDTR = N_CHANNELS_ADC;
+  DMA1_Channel1->CPAR = (uint32_t)&ADC1->DR;
+  DMA1_Channel1->CMAR = (uint32_t)&adc_buffer;
+
+  DMA1_Channel4->CCR = DMA_CCR_PL_1 | DMA_CCR_PL_0 | DMA_MINC_ENABLE |
+                       DMA_CCR_TCIE | DMA_CCR_DIR;
+  DMA1_Channel4->CNDTR = 2 * N_CHANNELS_ADC + 4;
+  DMA1_Channel4->CPAR = (uint32_t)&USART1->DR;
+  DMA1_Channel4->CMAR = (uint32_t)&uart_buffer;
+
+  NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  NVIC_SetPriority(DMA1_Channel1_IRQn, 0);
+
+  NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+  NVIC_SetPriority(DMA1_Channel4_IRQn, 1);
 }
 /* USER CODE END 4 */
 
