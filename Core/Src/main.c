@@ -120,7 +120,7 @@ int main(void) {
 
     /* USER CODE BEGIN 3 */
     uint32_t current_time = HAL_GetTick();
-    if ((current_time - last_sample_time >= 10)) {
+    if ((current_time - last_sample_time >= 7)) {
       last_sample_time = current_time;
       for (uint8_t i = 0; i < N_CHANNEL; i++) {
         adc_measure = ADC_Read_Channel(i);
